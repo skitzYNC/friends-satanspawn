@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>FRIENDS — Hacker Console</title>
+<style>
+  html,body{height:100%;margin:0;background:#000;overflow:hidden;font-family: "Courier New", monospace;}
+  #app{position:relative;height:100%;width:100%;display:flex;align-items:center;justify-content:center;}
+
+  /* Matrix canvas behind content */
+  canvas#matrix { position:fixed; left:0; top:0; width:100%; height:100%; z-index:0;
+    background:#000; filter:blur(0.2px) contrast(1.1); }
+
+  /* Console card */
+  .console {
+    position:relative; z-index:2; width:min(920px,92%); max-width:1100px;
+    background: rgba(0,0,0,0.45); border: 1px solid rgba(0,255,136,0.12);
+    box-shadow: 0 8px 40px rgba(0,255,136,0.05), inset 0 0 40px rgba(0,255,136,0.02);
+    padding:28px 18px 16px 18px; border-radius:10px; color:#00ff88; backdrop-filter: blur(6px) saturate(120%);
+  }
+
+  .header { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .badge{ font-size:12px; padding:6px 8px; border-radius:6px;
+    background:linear-gradient(90deg, rgba(0,255,136,0.06), rgba(0,255,136,0.02));
+    color:#bfffd3; border:1px solid rgba(0,255,136,0.06) }
+  .title{ font-weight:700; letter-spacing:0.8px; font-size:14px; color:#ccffdf }
+
+  /* ASCII FRIENDS */
+  .ascii{ white-space:pre; font-size:11px; line-height:0.9; color:#00ffaa; margin-bottom:8px; text-align:center; }
+
+  /* logs */
+  .logs{ font-size:14px; line-height:1.9; min-height:220px; max-height:44vh; overflow:auto; padding-right:6px; }
+  .line{ opacity:0.98; white-space:pre-wrap; word-break:break-word; }
+  .tag{ color:#7ef9b1; margin-right:8px; display:inline-block; min-width:150px; }
+  .cursor{ display:inline-block; width:10px; transform:translateY(-2px); background:#00ff88; border-radius:2px; margin-left:6px; animation:blink 900ms steps(1) infinite }
+  @keyframes blink{50%{opacity:0}}
+
+  /* input area */
+  .input-wrap{ margin-top:12px; display:flex; gap:8px; align-items:center; }
+  .prompt{ color:#9fffd8; min-width:82px; }
+  input.command {
+    flex:1; background:rgba(0,0,0,0.6); color:#cffff0; border:1px solid rgba(0,255,136,0.06);
+    padding:10px 12px; border-radius:6px; font-family: "Courier New", monospace; font-size:14px; outline:none;
+  }
+  input.command:focus{ box-shadow:0 0 18px rgba(0,255,136,0.06); border-color:rgba(0,255,136,0.14) }
+
+  .hint{ font-size:12px; color:#9fffd8; margin-top:8px; }
+
+  /* responsive */
+  @media (max-width:520px){
+    .console{ padding:16px }
+    .ascii{ font-size:9px }
+    .tag{ min-width:90px }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="matrix"></canvas>
+
+  <div class="console" role="region" aria-label="Hacker console">
+    <div class="header">
+      <div class="badge">FRIENDS Network v3.2</div>
+      <div class="title">// interactive terminal</div>
+    </div>
+
+    <div class="ascii" id="ascii">
+ ________  _______   ______  ________  __    __  _______    ______  
+|        \|       \ |      \|        \|  \  |  \|       \  /      \ 
+| $$$$$$$$| $$$$$$$\ \$$$$$$| $$$$$$$$| $$\ | $$| $$$$$$$\|  $$$$$$\
+| $$__    | $$__| $$  | $$  | $$__    | $$$\| $$| $$  | $$| $$___\$$
+| $$  \   | $$    $$  | $$  | $$  \   | $$$$\ $$| $$  | $$ \$$    \ 
+| $$$$$   | $$$$$$$\  | $$  | $$$$$   | $$\$$ $$| $$  | $$ _\$$$$$$\
+| $$      | $$  | $$ _| $$_ | $$_____ | $$ \$$$$| $$__/ $$|  \__| $$
+| $$      | $$  | $$|   $$ \| $$     \| $$  \$$$| $$    $$ \$$    $$
+ \$$       \$$   \$$ \$$$$$$ \$$$$$$$$ \$$   \$$ \$$$$$$$   \$$$$$$ 
+                                                                    
+                                                                    
+                                                                    
+    </div>
+
+    <div class="logs" id="logs" aria-live="polite" aria-atomic="false">
+      <!-- typed lines -->
+    </div>
+
+    <div class="input-wrap" aria-hidden="false">
+      <div class="prompt">guest@friends:</div>
+      <input id="cmd" class="command" autocomplete="off" autocapitalize="off" spellcheck="false"
+             placeholder="type 'help' — try secrets, whoami, reveal <code>, clear, help..." />
+    </div>
+
+    <div class="hint">Pro tip: use ↑ / ↓ to browse history. Try <code>secrets</code> or <code>reveal alpha</code>.</div>
+  </div>
+</div>
+
+<script>
+/* ===== MATRIX RAIN BACKGROUND (unchanged) ===== */
+(function matrix() {
+  const canvas = document.getElementById('matrix');
+  const ctx = canvas.getContext('2d');
+  let width, height, cols, size = 16;
+  let drops;
+
+  function setup() {
+    width = canvas.width = innerWidth;
+    height = canvas.height = innerHeight;
+    cols = Math.floor(width / size) + 1;
+    drops = new Array(cols).fill(1).map(() => Math.floor(Math.random()*height));
+  }
+
+  function draw() {
+    ctx.fillStyle = "rgba(0,0,0,0.12)";
+    ctx.fillRect(0,0,width,height);
+
+    ctx.font = size + "px monospace";
+    for (let i=0;i<drops.length;i++){
+      const text = String.fromCharCode(0x30A0 + Math.random()*96);
+      ctx.fillStyle = i%8===0 ? "rgba(180,255,200,0.95)" : "rgba(0,255,136,0.75)";
+      ctx.fillText(text, i*size, drops[i]*size);
+      if (drops[i]*size > height && Math.random() > 0.975) drops[i]=0;
+      drops[i]++;
+    }
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener('resize', setup);
+  setup();
+  draw();
+})();
+
+/* ===== TERMINAL / COMMAND HANDLER ===== */
+(function terminal(){
+  const logsEl = document.getElementById('logs');
+  const input = document.getElementById('cmd');
+
+  // built-in secrets (playful; not real-sensitive)
+  const SECRETS = {
+    alpha: "alpha — ≈ 0xF1N3: You found the handshake. // friends-flag{alpha_found}",
+    omega: "omega — legacy key: 'friends-forever' // friends-flag{omega_unlocked}",
+    eclipse: "eclipse — hidden playlist: 'lofi_goth_rituals' • enjoy the vibe",
+    echo: "echo — mirror message unlocked: 'we code, we create, we share.'"
+  };
+
+  // predefined responses for commands
+  const RESPONSES = {
+    help: [
+      "help — commands: help, whoami, ls, clear, secrets, reveal <code>, ping, about, sudo",
+      "Try 'secrets' to see secret ids (masked). Use 'reveal <id>' to unlock if you have the code."
+    ],
+    whoami: ["guest — ephemeral session (no auth). alias: me"],
+    ls: ["THE FIENDS: me • serenity • ria • vixx", "THE OVERALL CHILL: vix • caffein • mizi"],
+    about: ["FRIENDS Network v3.2 — playful hacker console. Designed for profiles, posts, and vibes."],
+    ping: ["pong — latency simulated (42ms)"],
+    sudo: ["permission denied: this console runs on vibes, not root. try 'sudo make me a sandwich' for fun."]
+  };
+
+  // command history
+  const history = [];
+  let histPos = -1;
+
+  // helper: append line with optional tag
+  function appendLine(tag, text) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'line';
+    const tagSpan = document.createElement('span');
+    tagSpan.className = 'tag';
+    tagSpan.textContent = tag;
+    wrapper.appendChild(tagSpan);
+    const textSpan = document.createElement('span');
+    textSpan.textContent = text;
+    wrapper.appendChild(textSpan);
+    logsEl.appendChild(wrapper);
+    logsEl.scrollTop = logsEl.scrollHeight;
+  }
+
+  // show masked secrets
+  function listSecrets() {
+    const keys = Object.keys(SECRETS);
+    // mask middle letters
+    const masked = keys.map(k => k[0] + k.slice(1,-1).replace(/./g,'*') + k.slice(-1));
+    appendLine("[SECRETS]", "available -> " + masked.join(" • "));
+    appendLine("[HINT]", "use 'reveal <id>' to attempt unlock (ids are case-insensitive)");
+  }
+
+  // reveal if exists
+  function revealCode(id) {
+    const key = id.toLowerCase();
+    if (SECRETS[key]) {
+      appendLine("[REVEAL]", SECRETS[key]);
+    } else {
+      appendLine("[REVEAL]", "no match for '" + id + "' — code not found.");
+    }
+  }
+
+  // process arbitrary commands (harmless)
+  function process(cmdRaw) {
+    if (!cmdRaw.trim()) return;
+    const cmd = cmdRaw.trim();
+    appendLine("[CMD]", cmd);
+    const parts = cmd.split(/\s+/);
+    const verb = parts[0].toLowerCase();
+
+    // record history (simple)
+    history.unshift(cmd);
+    histPos = -1;
+
+    // built-ins
+    if (verb === 'clear') {
+      logsEl.innerHTML = '';
+      appendLine("[SYSTEM]", "console cleared.");
+      return;
+    }
+    if (verb === 'secrets') {
+      listSecrets(); return;
+    }
+    if (verb === 'reveal') {
+      if (parts.length < 2) {
+        appendLine("[ERROR]", "usage: reveal <code>");
+      } else {
+        revealCode(parts[1]);
+      }
+      return;
+    }
+    if (RESPONSES[verb]) {
+      const lines = RESPONSES[verb];
+      lines.forEach(l => appendLine("[" + verb.toUpperCase() + "]", l));
+      return;
+    }
+
+    // playful sudo sandwich easter egg
+    if (cmd.toLowerCase() === 'sudo make me a sandwich') {
+      appendLine("[SUDO]", "Okay. Here's a sandwich: 🥪 (virtual). You're welcome.");
+      return;
+    }
+
+    // allow "any command" — echo + simulated output (safe)
+    // If command looks like 'scan' or 'hack', respond with safe refusal + flavor
+    if (/scan|hack|penetrate|exploit/i.test(cmd)) {
+      appendLine("[SECURE]", "operation blocked: ethics module engaged. Try something harmless like 'about' or 'secrets'.");
+      return;
+    }
+
+    // otherwise: echo a pseudo-response (harmless)
+    appendLine("[ECHO]", `command '${cmd}' received — no native handler. try 'help'.`);
+  }
+
+  // key handlers — enter to submit, up/down for history
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      const v = input.value;
+      process(v);
+      input.value = '';
+    } else if (ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      if (history.length === 0) return;
+      histPos = Math.min(history.length - 1, histPos + 1);
+      input.value = history[histPos];
+    } else if (ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      if (history.length === 0) return;
+      histPos = Math.max(-1, histPos - 1);
+      input.value = histPos === -1 ? '' : history[histPos];
+    }
+  });
+
+  // friendly startup sequence
+  (function boot() {
+    const intro = [
+      {tag:"[ACCESS]", text:"ACCESS GRANTED"},
+      {tag:"[CONNECTED_USERS]", text:"me • serenity • ria • vixx"},
+      {tag:"[ROLE]", text:"HACKER / ARCHITECT -> me"},
+      {tag:"[GROUP]", text:"THE OVERALL CHILL -> vix • caffein • mizi"},
+      {tag:"[ARTIST]", text:"vix"},
+      {tag:"[CLUSTER]", text:"CRAZY DUMBASS -> vix • me • serina • ria • serenity"},
+      {tag:"[💀 PEOPLE]", text:"xander • amaryliss"},
+      {tag:"[SYSTEM]", text:"ENCRYPTION ENABLED | SYSTEM STABLE ⚡"},
+      {tag:"[TIP]", text:"type 'help' to start — try 'secrets' for hidden items"}
+    ];
+    let i=0;
+    function pump() {
+      if (i>=intro.length) { input.focus(); return; }
+      const item = intro[i++];
+      setTimeout(()=>{ appendLine(item.tag, item.text); pump(); }, 300 + Math.random()*200);
+    }
+    pump();
+  })();
+
+})();
+</script>
+</body>
+</html>
